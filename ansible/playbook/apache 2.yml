@@ -1,0 +1,56 @@
+---
+- name: Install Apache with the latest secure version
+  hosts: server_web
+  become: yes
+  tasks:
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+
+    - name: Install Apache
+      apt:
+        name: apache2
+        state: latest
+
+    - name: Ensure Apache is started and enabled on boot
+      systemd:
+        name: apache2
+        enabled: yes
+        state: started
+
+    - name: Configure Apache to run on port 80
+      lineinfile:
+        path: /etc/apache2/ports.conf
+        regexp: '^Listen'
+        line: 'Listen 80'
+        state: present
+        backup: yes
+
+    - name: Configure UFW to allow HTTP traffic on port 80
+      ufw:
+        rule: allow
+        port: '80'
+        proto: tcp
+
+    - name: Ensure UFW is enabled
+      ufw:
+        state: enabled
+
+    - name: Disable Apache version disclosure
+      lineinfile:
+        path: /etc/apache2/conf-available/security.conf
+        regexp: '^ServerTokens'
+        line: 'ServerTokens Prod'
+        state: present
+
+    - name: Disable Apache banner in response headers
+      lineinfile:
+        path: /etc/apache2/conf-available/security.conf
+        regexp: '^ServerSignature'
+        line: 'ServerSignature Off'
+        state: present
+
+    - name: Restart Apache to apply configuration changes
+      systemd:
+        name: apache2
+        state: restarted

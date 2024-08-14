@@ -1,0 +1,47 @@
+---
+- name: Setup and configure Nginx
+  hosts: server_web
+  become: yes
+  tasks:
+    - name: Install Nginx
+      apt:
+        name: nginx
+        state: present
+        update_cache: yes
+
+    - name: Start and enable Nginx service
+      systemd:
+        name: nginx
+        enabled: yes
+        state: started
+
+    - name: Update Nginx default index page
+      copy:
+        content: "Selamat Datang"
+        dest: /var/www/html/index.html
+        owner: www-data
+        group: www-data
+        mode: '0644'
+
+    - name: Update Nginx to listen on port 8888
+      lineinfile:
+        path: /etc/nginx/sites-available/default
+        regexp: 'listen 80 default_server;'
+        line: 'listen 8888 default_server;'
+        state: present
+        backup: yes
+
+    - name: Restart Nginx to apply changes
+      systemd:
+        name: nginx
+        state: restarted
+
+    - name: Allow port 8888 through UFW
+      ufw:
+        rule: allow
+        port: '8888'
+        proto: tcp
+
+    - name: Ensure UFW is enabled
+      ufw:
+        state: enabled
