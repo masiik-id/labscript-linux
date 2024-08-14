@@ -1,0 +1,2 @@
+[server_web]
+192.168.56.30 ansible_user=arief
