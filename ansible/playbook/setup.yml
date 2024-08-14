@@ -86,7 +86,7 @@
     - name: Add user and add group
       user:
         name: sri
-        password: "{{ '123' | password_hash('sha512') }}"
+        password: "{{ '1234' | password_hash('sha512') }}"
         groups: infra,sudo
         shell: /bin/bash
         state: present
