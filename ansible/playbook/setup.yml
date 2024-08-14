@@ -85,13 +85,15 @@
 
     - name: Add user and add group
       user:
-        name: arief
+        name: sri
         password: "{{ '123' | password_hash('sha512') }}"
         groups: infra,sudo
+        shell: /bin/bash
         state: present
 
+
     - name: Set password expiration for user arief
-      command: chage -M 90 -W 15 arief
+      command: chage -M 90 -W 15 sri
 
 
     - name: Create /var/log/user-activity directory
