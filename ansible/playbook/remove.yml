@@ -1,0 +1,82 @@
+---
+- name: Uninstall Apache, Tomcat and Install Nginx
+  hosts: all
+  become: yes
+  tasks:
+    - name: Stop and disable Apache service
+      systemd:
+        name: apache2
+        state: stopped
+        enabled: no
+
+    - name: Remove Apache HTTP Server
+      apt:
+        name: apache2
+        state: absent
+
+    - name: Stop and disable Tomcat service
+      systemd:
+        name: tomcat
+        state: stopped
+        enabled: no
+
+    - name: Remove Tomcat
+      file:
+        path: /opt/tomcat
+        state: absent
+
+    - name: Remove Tomcat download file
+      file:
+        path: /tmp/apache-tomcat-9.0.73.tar.gz
+        state: absent
+
+    - name: Ensure UFW is installed
+      apt:
+        name: ufw
+        state: present
+
+    - name: Remove UFW rule for port 80
+      command: ufw delete allow 80/tcp
+      ignore_errors: yes
+
+    - name: Remove UFW rule for port 8080
+      command: ufw delete allow 8080/tcp
+      ignore_errors: yes
+
+    - name: Install Nginx
+      apt:
+        name: nginx
+        state: present
+
+    - name: Configure Nginx to listen on port 8888
+      blockinfile:
+        path: /etc/nginx/sites-available/default
+        block: |
+          server {
+              listen 8888;
+              server_name localhost;
+
+              location / {
+                  root /var/www/html;
+                  index index.html index.htm;
+              }
+          }
+        create: yes
+
+    - name: Remove default Nginx configuration
+      file:
+        path: /etc/nginx/sites-enabled/default
+        state: absent
+
+    - name: Enable new Nginx configuration
+      command: nginx -s reload
+
+    - name: Remove UFW rule for port 8080
+      command: ufw allow 8888/tcp
+      ignore_errors: yes
+
+    - name: Ensure Nginx is started and enabled
+      systemd:
+        name: nginx
+        state: started
+        enabled: yes
