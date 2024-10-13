@@ -1,0 +1,185 @@
+---
+- name: Setup Ubuntu Server 24.04
+  hosts: servers
+  become: yes
+  vars:
+    ansible_python_interpreter: /usr/bin/python3
+  tasks:
+    - name: Add Indonesian Repository
+      apt_repository:
+        repo: "deb http://kartolo.sby.datautama.net.id/ubuntu/ {{ ansible_distribution_release }} main restricted universe multiverse"
+        state: present
+
+    - name: Update apt packages
+      apt:
+        update_cache: yes
+
+    - name: Set timezone to Asia/Jakarta
+      timezone:
+        name: Asia/Jakarta
+
+    - name: Enable NTP
+      apt:
+        name: ntp
+        state: present
+
+    - name: Install standard applications
+      apt:
+        name:
+          - curl
+          - wget
+          - git
+          - nano
+          - net-tools
+          - htop
+          - logcheck
+          - logwatch
+          - fail2ban
+        state: present
+
+    - name: Check and display version of curl
+      command: curl --version
+      register: curl_version
+
+    - name: Display curl version
+      debug:
+        msg: "Curl version installed: {{ curl_version.stdout }}"
+
+    - name: Check and display version of wget
+      command: wget --version
+      register: wget_version
+
+    - name: Display wget version
+      debug:
+        msg: "Wget version installed: {{ wget_version.stdout }}"
+
+    - name: Check and display version of git
+      command: git --version
+      register: git_version
+
+    - name: Display git version
+      debug:
+        msg: "Git version installed: {{ git_version.stdout }}"
+
+    - name: Check and display version of nano
+      command: nano --version
+      register: nano_version
+
+    - name: Display nano version
+      debug:
+        msg: "Nano version installed: {{ nano_version.stdout }}"
+
+    - name: Check and display version of htop
+      command: htop --version
+      register: htop_version
+
+    - name: Display htop version
+      debug:
+        msg: "Htop version installed: {{ htop_version.stdout }}"
+
+    - name: Check and display version of fail2ban
+      command: fail2ban-client --version
+      register: fail2ban_version
+
+    - name: Display fail2ban version
+      debug:
+        msg: "Fail2ban version installed: {{ fail2ban_version.stdout }}"
+
+    - name: Disable IPv6
+      sysctl:
+        name: net.ipv6.conf.all.disable_ipv6
+        value: 1
+        sysctl_set: yes
+        state: present
+        reload: yes
+
+    - name: Create infra group
+      group:
+        name: infra
+        state: present
+
+    - name: Create sysit user and add to infra group
+      user:
+        name: sysit
+        password: "{{ '123' | password_hash('sha512') }}"
+        groups: infra,sudo
+        shell: /bin/bash
+        state: present
+    
+    - name: Set password expiration for user sysit
+      command: chage -M 90 -W 15 sysit
+
+    - name: Create /var/log/user-activity directory
+      file:
+        path: /var/log/user-activity
+        state: directory
+        owner: root
+        group: root
+        mode: '1777'
+
+    - name: Ensure /etc/bash.bashrc exists
+      file:
+        path: /etc/bash.bashrc
+        state: touch
+
+    - name: Append logging script to /etc/bash.bashrc
+      blockinfile:
+        path: /etc/bash.bashrc
+        block: |
+          PROMPT_COMMAND='current_date=$(date "+%Y-%m-%d"); mkdir -p /var/log/user-activity; logfile="/var/log/user-activity/$(whoami)-${current_date}.log"; echo "$(date "+%Y-%m-%d %H:%M:%S") $(whoami)  ${SSH_CLIENT%% *} $(history 1 | sed "s/^[ ]*[0-9]\+[ ]*//")" >> "$logfile"'
+
+    - name: Set permissions on new log files
+      find:
+        paths: /var/log/user-activity
+        recurse: yes
+        file_type: file
+      register: log_files
+
+    - name: Set file permissions for new log files
+      file:
+        path: "{{ item.path }}"
+        owner: root
+        group: root
+        mode: '0640'
+      loop: "{{ log_files.files }}"
+
+
+    - name: Set password complexity requirements
+      lineinfile:
+        path: /etc/pam.d/common-password
+        regexp: '^password'
+        line: 'password requisite pam_pwquality.so retry=3'
+
+
+    - name: Disable root login over SSH
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^PermitRootLogin'
+        line: 'PermitRootLogin no'
+
+#    - name: Change the SSH port
+#      lineinfile:
+#        path: /etc/ssh/sshd_config
+#        regexp: '^#Port 22'
+#       line: 'Port 2222'  # Ganti dengan port yang Anda inginkan
+
+
+    - name: Enable UFW
+      ufw:
+        state: enabled
+
+    - name: Configure UFW to allow other necessary ports
+      ufw:
+        state: enabled
+        rule: allow
+        port: "{{ item }}"
+        proto: tcp
+      loop:
+ #       - '2222'  # Port SSH baru
+        - '80'    # HTTP
+        - '443'   # HTTPS
+
+ #   - name: Restart SSH service to apply changes
+ #     service:
+ #       name: ssh
+ #       state: restarted

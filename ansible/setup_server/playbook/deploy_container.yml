@@ -1,0 +1,40 @@
+---
+- name: Deploy Docker Container
+  hosts: servers
+  become: yes  # Jika perlu menggunakan sudo
+  vars:
+    ansible_python_interpreter: /usr/bin/python3
+  tasks:
+    - name: Create target directory if not exists
+      file:
+        path: /home/sysit/containers/postgres
+        state: directory
+        mode: '0777'
+
+    - name: Synchronize postgres directory to target server
+      command: >
+        rsync -avz --no-times /Users/macbook/Documents/sources/ansible/setup_server/playbook/docker-compose/postgres/ sysit@192.168.0.11:/home/sysit/containers/postgres/
+      delegate_to: localhost  # Menjalankan perintah dari localhost
+      become: no  # Jangan gunakan sudo di sini karena ssh tidak memerlukan sudo
+
+    - name: Ensure target directory is owned by the correct user
+      command: >
+        ssh sysit@192.168.0.11 "sudo chown -R sysit:sysit /home/sysit/containers/postgres/"
+      delegate_to: localhost
+      
+    - name: Ensure Docker Compose is installed
+      apt:
+        name: docker-compose
+        state: present
+      when: ansible_os_family == "Debian"  # Pastikan untuk sistem berbasis Debian/Ubuntu
+
+    - name: Create Docker container using docker-compose
+      command: docker-compose up -d
+      args:
+        chdir: /home/containers/postgres
+      register: docker_compose_output
+      ignore_errors: yes  # Mengabaikan kesalahan agar kita bisa melihat outputnya
+
+    - name: Debug Docker Compose output
+      debug:
+        var: docker_compose_output

@@ -1,0 +1,206 @@
+---
+- name: Setup Standart for Ubuntu Server 24.04
+  hosts: servers
+  become: yes
+  vars:
+    ansible_python_interpreter: /usr/bin/python3
+  tasks:
+
+    - name: Backup existing sources.list
+      command: cp /etc/apt/sources.list /etc/apt/sources.list.bak
+      changed_when: false
+
+    - name: Add new repositories
+      blockinfile:
+        path: /etc/apt/sources.list
+        block: |
+          deb http://cdn.repo.cloudeka.id/ubuntu/ noble main restricted universe multiverse
+          deb http://cdn.repo.cloudeka.id/ubuntu/ noble-updates main restricted universe multiverse
+          deb http://cdn.repo.cloudeka.id/ubuntu/ noble-security main restricted universe multiverse
+          deb http://cdn.repo.cloudeka.id/ubuntu/ noble-backports main restricted universe multiverse
+          deb http://cdn.repo.cloudeka.id/ubuntu/ noble-proposed main restricted universe multiverse
+        create: yes
+
+    - name: Update package index
+      apt:
+        update_cache: yes
+
+    - name: Set timezone to Asia/Jakarta
+      timezone:
+        name: Asia/Jakarta
+
+    - name: Enable NTP
+      apt:
+        name: ntp
+        state: present
+
+    - name: Install standard applications
+      apt:
+        name:
+          - curl
+          - wget
+          - git
+          - nano
+          - net-tools
+          - htop
+          - logcheck
+          - logwatch
+          - fail2ban
+        state: present
+
+    - name: Configure fail2ban
+      copy:
+        dest: /etc/fail2ban/jail.local
+        content: |
+          [DEFAULT]
+          bantime  = 10m
+          findtime  = 10m
+          maxretry  = 5
+          ignoreip  = 127.0.0.1/8 ::1
+
+          [sshd]
+          enabled   = true
+          port      = ssh
+          filter    = sshd
+          logpath   = /var/log/auth.log
+          backend   = systemd
+        mode: '0644'
+
+    - name: Restart fail2ban to apply new configuration
+      systemd:
+        name: fail2ban
+        state: restarted
+
+    - name: Update SSH configuration in /etc/ssh/sshd_config
+      blockinfile:
+        path: /etc/ssh/sshd_config
+        block: |
+          LogLevel INFO
+          PermitRootLogin no
+          StrictModes yes
+          MaxAuthTries 3
+          MaxSessions 6
+          PermitEmptyPasswords no
+          AllowTcpForwarding no
+          X11Forwarding no
+          ClientAliveInterval 180
+        create: yes
+
+    - name: Disable IPv6
+      sysctl:
+        name: net.ipv6.conf.all.disable_ipv6
+        value: 1
+        sysctl_set: yes
+        state: present
+        reload: yes
+
+    - name: Create infra group
+      group:
+        name: infra
+        state: present
+
+    - name: Create sysit user and add to infra group
+      user:
+        name: sysit
+        password: "{{ '123' | password_hash('sha512') }}"
+        groups: infra,sudo
+        shell: /bin/bash
+        state: present
+    
+    - name: Set password expiration for user sysit
+      command: chage -M 90 -W 15 sysit
+
+
+    - name: Set password complexity requirements
+      lineinfile:
+        path: /etc/pam.d/common-password
+        regexp: '^password'
+        line: 'password requisite pam_pwquality.so retry=3'
+
+
+    - name: Disable root login over SSH
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^PermitRootLogin'
+        line: 'PermitRootLogin no'
+
+
+    - name: Enable UFW
+      ufw:
+        state: enabled
+
+    - name: Configure UFW to allow other necessary ports
+      ufw:
+        state: enabled
+        rule: allow
+        port: "{{ item }}"
+        proto: tcp
+      loop:
+        - '80'    # HTTP
+        - '443'   # HTTPS
+
+    - name: Create script to list users and password expiration dates
+      copy:
+        dest: /usr/local/bin/list_user_expiration.sh
+        content: |
+          #!/bin/bash
+          echo "User Password Expiration Dates:"
+          for user in $(cut -f1 -d: /etc/passwd); do
+            chage -l $user | grep "Password expires" | awk -v user=$user '{print user": "$4" "$5" "$6}'
+          done
+        mode: '0755'
+
+    - name: Ensure list_user_expiration.sh is executable
+      file:
+        path: /usr/local/bin/list_user_expiration.sh
+        mode: '0755'
+        state: file
+    
+    - name: Nonaktifkan eksekusi (write) pada direktori sementara
+      command: chmod -R o-w /var/tmp
+      become: yes
+
+    - name: Set proper permissions for /tmp directory
+      command: chmod 1777 /tmp
+      become: yes
+
+    - name: Create /var/log/kernelact directory
+      file:
+        path: /var/log/kernelact
+        state: directory
+        owner: root
+        group: root
+        mode: '1733'  # This allows root full access and others can only write
+
+    - name: Ensure /etc/bash.bashrc exists
+      file:
+        path: /etc/bash.bashrc
+        state: touch
+
+    - name: Append logging script to /etc/bash.bashrc
+      blockinfile:
+        path: /etc/bash.bashrc
+        block: |
+          PROMPT_COMMAND='current_date=$(date "+%Y-%m-%d"); mkdir -p /var/log/kernelact; logfile="/var/log/kernelact/$(whoami)-${current_date}.log"; echo "$(date "+%Y-%m-%d %H:%M:%S") $(whoami)  ${SSH_CLIENT%% *} $(history 1 | sed "s/^[ ]*[0-9]\+[ ]*//")" >> "$logfile"'
+
+    - name: Source /etc/bash.bashrc to activate changes
+      command: source /etc/bash.bashrc
+      args:
+        warn: false
+      ignore_errors: yes
+
+    - name: Set permissions on new log files
+      find:
+        paths: /var/log/kernelact
+        recurse: yes
+        file_type: file
+      register: log_files
+
+    - name: Set file permissions for new log files
+      file:
+        path: "{{ item.path }}"
+        owner: root
+        group: root
+        mode: '0640'  # Only root can read and write, others can't access
+      loop: "{{ log_files.files }}"
+

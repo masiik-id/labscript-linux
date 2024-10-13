@@ -1,0 +1,51 @@
+---
+- name: Install Docker and Change Docker Root Directory
+  hosts: servers
+  become: yes
+  vars:
+    ansible_python_interpreter: /usr/bin/python3
+  tasks:
+    - name: Download Docker installation script
+      get_url:
+        url: https://get.docker.com
+        dest: /tmp/get-docker.sh
+        mode: '0755'
+
+    - name: Run Docker installation script
+      command: bash /tmp/get-docker.sh
+
+    - name: Create new Docker directory
+      file:
+        path: /home/docker
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Stop Docker service
+      systemd:
+        name: docker
+        state: stopped
+
+    - name: Modify Docker service file to change root directory
+      lineinfile:
+        path: /etc/docker/daemon.json
+        line: '{
+                "data-root": "/home/docker"
+              }'
+        create: yes
+        state: present
+
+    - name: Start Docker service
+      systemd:
+        name: docker
+        state: started
+        enabled: yes  # Memastikan Docker di-enable saat boot
+
+    - name: Verify Docker installation
+      command: docker --version
+      register: docker_version
+
+    - name: Display Docker version
+      debug:
+        msg: "Docker version installed: {{ docker_version.stdout }}"
